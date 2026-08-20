@@ -300,6 +300,15 @@ def save_seen(seen):
 # 3단계: 클로드에게 선별 + 번역 맡기기
 # ─────────────────────────────────────────────────────────────
 
+class CurationFailed(Exception):
+    """
+    클로드 호출 자체가 실패했다.
+
+    '고를 게 없어서 0건'과 반드시 구분해야 한다. 둘을 같이 취급하면
+    호출이 죽은 날에도 후보 전체가 '이미 봤음'으로 기록돼 영영 다시 검토되지 않는다.
+    """
+
+
 def curate(candidates):
     """
     선별을 클로드에게 맡긴다. 인증 방법이 두 가지다.
@@ -331,7 +340,9 @@ def curate(candidates):
             "   CLAUDE_CODE_OAUTH_TOKEN 또는 ANTHROPIC_API_KEY 중 하나가 필요합니다."
         )
 
-    return _parse_json(text) if text else []
+    if not text:
+        raise CurationFailed("클로드 응답을 받지 못했습니다")
+    return _parse_json(text)
 
 
 def _ask_claude_code(prompt):
@@ -345,7 +356,11 @@ def _ask_claude_code(prompt):
                 capture_output=True, text=True, timeout=300,
             )
             if r.returncode != 0:
-                raise RuntimeError(r.stderr[:400] or "종료 코드 " + str(r.returncode))
+                detail = (r.stderr or "").strip() or (r.stdout or "").strip()
+                raise RuntimeError(
+                    f"종료 코드 {r.returncode}"
+                    + (f" · {detail[:500]}" if detail else " · 출력 없음")
+                )
 
             out = r.stdout.strip()
             try:
@@ -482,7 +497,12 @@ def main():
         print(f"→ 소스별로 골고루 {len(fresh)}건만 클로드에게 넘깁니다")
 
     print("🤖 클로드가 선별하는 중...")
-    picks = curate(fresh)
+    try:
+        picks = curate(fresh)
+    except CurationFailed as err:
+        print(f"\n❌ 선별 실패: {err}")
+        print("   seen.json을 건드리지 않습니다 — 다음 실행에서 이 후보들을 다시 검토합니다.")
+        sys.exit(1)
 
     if not picks:
         print("👍 오늘은 올릴 만한 게 없다고 판단했습니다. 조용히 넘어갑니다.")
