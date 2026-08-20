@@ -37,7 +37,8 @@ from anthropic import Anthropic
 MODEL = os.environ.get("MODEL", "claude-sonnet-4-5")
 
 MAX_PICKS = 3           # 한 번에 올릴 최대 개수
-LOOKBACK_DAYS = 4       # 며칠 이내 글까지 후보로 볼지 (주 3회 발행이라 4일)
+LOOKBACK_DAYS = 4       # 며칠 이내 글까지 후보로 볼지. 매일 발행이지만 4일로 둡니다 —
+                        # 실행이 한두 번 실패해도 그 사이 글을 놓치지 않습니다 (중복은 seen.json이 막음)
 MAX_CANDIDATES = 60     # 클로드에 넘길 최대 후보 수 (토큰 절약)
 SEEN_FILE = Path(__file__).parent / "seen.json"
 SEEN_KEEP = 500         # seen.json에 유지할 최근 URL 개수
