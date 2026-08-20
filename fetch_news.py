@@ -345,6 +345,22 @@ def curate(candidates):
     return _parse_json(text)
 
 
+def _explain(r):
+    """클로드 코드가 실패했을 때 사람이 읽을 수 있는 이유를 뽑아낸다."""
+    out = (r.stdout or "").strip()
+    err = (r.stderr or "").strip()
+    if out.startswith("{"):
+        try:
+            # 실패해도 --output-format json 은 result 안에 사유를 담아 보낸다
+            d = json.loads(out)
+            reason = d.get("result") or d.get("error") or ""
+            if reason:
+                return str(reason)[:1500]
+        except json.JSONDecodeError:
+            pass
+    return (err or out or "출력 없음")[:1500]
+
+
 def _ask_claude_code(prompt):
     """클로드 코드 CLI를 헤드리스로 호출한다. 구독 토큰으로 인증된다."""
     import subprocess
@@ -356,11 +372,7 @@ def _ask_claude_code(prompt):
                 capture_output=True, text=True, timeout=300,
             )
             if r.returncode != 0:
-                detail = (r.stderr or "").strip() or (r.stdout or "").strip()
-                raise RuntimeError(
-                    f"종료 코드 {r.returncode}"
-                    + (f" · {detail[:500]}" if detail else " · 출력 없음")
-                )
+                raise RuntimeError(f"종료 코드 {r.returncode} · {_explain(r)}")
 
             out = r.stdout.strip()
             try:
