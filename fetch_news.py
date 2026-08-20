@@ -39,7 +39,7 @@ MODEL = os.environ.get("MODEL", "claude-sonnet-4-5")
 MAX_PICKS = 3           # 한 번에 올릴 최대 개수
 LOOKBACK_DAYS = 4       # 며칠 이내 글까지 후보로 볼지. 매일 발행이지만 4일로 둡니다 —
                         # 실행이 한두 번 실패해도 그 사이 글을 놓치지 않습니다 (중복은 seen.json이 막음)
-MAX_CANDIDATES = 60     # 클로드에 넘길 최대 후보 수 (토큰 절약)
+MAX_CANDIDATES = 90     # 클로드에 넘길 최대 후보 수 (토큰 절약). 소스별로 골고루 뽑습니다 — _balance() 참고
 SEEN_FILE = Path(__file__).parent / "seen.json"
 SEEN_KEEP = 500         # seen.json에 유지할 최근 URL 개수
 
@@ -55,8 +55,18 @@ SOURCES = [
     ("Simon Willison",   "https://simonwillison.net/atom/everything/"),
     ("Latent Space",     "https://www.latent.space/feed"),
     ("Ethan Mollick",    "https://www.oneusefulthing.org/feed"),
+    ("Hacker News",      "https://hnrss.org/newest?q=AI+OR+LLM+OR+Claude&points=100"),
+    ("r/ChatGPTCoding",  "https://www.reddit.com/r/ChatGPTCoding/top/.rss?t=week"),
+    # 만들기·배포·자동화 — 멤버들이 지금 실제로 하려는 것
+    ("n8n",              "https://blog.n8n.io/rss/"),
+    ("Replit",           "https://blog.replit.com/feed.xml"),
+    ("Streamlit",        "https://blog.streamlit.io/feed/"),
+    ("Vercel",           "https://vercel.com/atom"),
+    # 도구 변경사항 — 당장 써볼 수 있는 새 기능이 여기 먼저 적힙니다
+    ("Cursor",           "https://cursor.com/changelog/rss.xml"),
     # 국내
     ("GeekNews",         "https://news.hada.io/rss/news"),
+    ("요즘IT",            "https://yozm.wishket.com/magazine/feed/"),
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -213,6 +223,35 @@ def check_sources():
         else:
             print(f"  ❌ {name:18}   응답 없음 — SOURCES에서 빼거나 URL을 고치세요")
     print(f"\n→ {alive}/{len(SOURCES)}개 정상")
+
+
+def _balance(entries, limit):
+    """
+    소스별로 한 건씩 돌아가며 뽑는다.
+
+    그냥 앞에서부터 자르면 SOURCES 뒤쪽 소스가 통째로 날아간다.
+    글을 많이 쓰는 소스(Vercel 등)가 자리를 독식하는 것도 막는다.
+    각 소스 안에서는 최신 글이 먼저 뽑힌다.
+    """
+    by_source = {}
+    for e in entries:
+        by_source.setdefault(e["source"], []).append(e)
+    for items in by_source.values():
+        items.sort(key=lambda e: e.get("published", ""), reverse=True)
+
+    picked, depth = [], 0
+    while len(picked) < limit:
+        added = False
+        for items in by_source.values():
+            if depth < len(items):
+                picked.append(items[depth])
+                added = True
+                if len(picked) >= limit:
+                    break
+        if not added:          # 모든 소스가 바닥났다
+            break
+        depth += 1
+    return picked
 
 
 def _parse_date(entry):
@@ -437,6 +476,10 @@ def main():
     if not fresh:
         print("새로운 글이 없습니다. 아무것도 올리지 않습니다.")
         return
+
+    if len(fresh) > MAX_CANDIDATES:
+        fresh = _balance(fresh, MAX_CANDIDATES)
+        print(f"→ 소스별로 골고루 {len(fresh)}건만 클로드에게 넘깁니다")
 
     print("🤖 클로드가 선별하는 중...")
     picks = curate(fresh)
